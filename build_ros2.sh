@@ -86,9 +86,9 @@ case $CMD in
 
     rebuild)
         rebuild_packages "$@"
-	PACKAGES=("$CMD" "$@")
-	info "Building selected packages: $CMD $*"
-	;;
+        PACKAGES=("$@")
+        info "Building selected packages: $CMD $*"
+        ;;
 
     all)
         info "Building all packages in $SRC_DIR"
