@@ -13,6 +13,7 @@ declare -A repos=(
     ["unitree_g1_demo"]="git@git.anitron.com:anitron/g1/unitree_g1_demo.git|training_plate"
     ["unitree_g1_ros2_control"]="git@git.anitron.com:anitron/g1/unitree_g1_ros2_control.git|main"
     ["unitree_g1_description"]="git@git.anitron.com:anitron/g1/unitree_g1_description.git|main"
+    ["unitree_g1_perception"]="git@git.anitron.com:anitron/g1/unitree_g1_perception.git|main"
     ["unitree_g1_vla"]="git@git.anitron.com:anitron/g1/unitree-g1-vla.git|main"
     # ["unitree_g1_docker"]="git@git.anitron.com:anitron/g1/g1-docker.git|main"
     ["fast_livo"]="git@git.anitron.com:anitron/g1/fast-livo2.git|ros2"
