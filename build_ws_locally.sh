@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 # or use: #!/usr/bin/env zsh
 # Compatible with both bash and zsh
+#
+# Usage: ./build_ws_locally.sh [MODE]
+#   MODE: simulation | local | all (default: all)
 
 # --- Detect shell and set base directory ---
 if [ -n "$ZSH_VERSION" ]; then
@@ -15,8 +18,9 @@ fi
 # --- Configurable paths ---
 WS_DIR="$SCRIPT_DIR/g1_ws"
 SRC_DIR="$WS_DIR/src"
+DOCKER_DIR="$WS_DIR/docker"
 SDK_DIR="$WS_DIR/sdk"
-THIRDPARTY_SRC="$SRC_DIR/thirdparty"
+# THIRDPARTY_SRC="$SRC_DIR/thirdparty"
 
 # --- Colors ---
 GREEN="\033[0;32m"
@@ -29,30 +33,55 @@ log() { echo -e "${GREEN}[INFO]${NC} $1"; }
 warn() { echo -e "${YELLOW}[WARN]${NC} $1"; }
 error() { echo -e "${RED}[ERROR]${NC} $1"; }
 
+# --- Parse deployment mode ---
+MODE="${1:-all}"
+log "Deployment mode: $MODE"
+
 # --- 1. Create workspace folders ---
-mkdir -p "$SRC_DIR" "$SDK_DIR" "$THIRDPARTY_SRC"
+mkdir -p "$SRC_DIR" "$DOCKER_DIR" "$SDK_DIR" #"$THIRDPARTY_SRC"
 log "Workspace structure created."
 
-# --- 2. Clone repositories if not already cloned ---
+# --- 2. Clone docker folder ---
+declare -A dockerRepo = ["unitree_g1_docker"]="git@git.anitron.com:anitron/g1/g1-docker|main"
+IFS="|" read -r url branch <<< "${dockerRepo}"
+if [ -d "$DOCKER_DIR/.git" ]; then
+    echo "🔄 Updating $dockerRepo ..."
+    git -C "$dockerRepo" fetch origin
+    git -C "$dockerRepo" checkout "$branch"
+    git -C "$dockerRepo" pull origin "$branch"
+else
+    echo "⬇️ Cloning $dockerRepo ..."
+    git clone -b "$branch" "$url" "$DOCKER_DIR"
+fi
+
+# --- 3. Clone repositories if not already cloned ---
 cd "$SRC_DIR"
 
-# src Repos
+# src Repos - format: "url|branch|tags" (tags: comma-separated)
 declare -A srcRepos=(
-    ["unitree_g1_moveit"]="git@git.anitron.com:anitron/g1/unitree-g1-moveit.git|main"
-    ["unitree_g1_task_planner"]="git@git.anitron.com:anitron/g1/demos/unitree-g1-task-planner.git|dev"
-    ["unitree_g1_interfaces"]="git@git.anitron.com:anitron/g1/demos/unitree_g1_interfaces.git|main"
-    ["unitree_g1_perception"]="git@git.anitron.com:anitron/g1/unitree_g1_perception.git|dev"
-    ["unitree_g1_pick_place"]="git@git.anitron.com:anitron/g1/demos/unitree_g1_pick_place.git|main"
-    ["unitree_g1_ros2_control"]="git@git.anitron.com:anitron/g1/unitree_g1_ros2_control.git|main"
-    ["unitree_g1_description"]="git@git.anitron.com:anitron/g1/unitree_g1_description.git|main"
-    ["unitree_g1_vla"]="git@git.anitron.com:anitron/g1/unitree-g1-vla.git|main"
-    ["unitree_g1_docker"]="git@git.anitron.com:anitron/g1/g1-docker|main"
-    ["fast_livo"]="git@git.anitron.com:anitron/g1/fast-livo2|ros2"
-    ["rpg_vikit"]="https://github.com/integralrobotics/rpg_vikit.git|ros2"
-    ["livox_ros_driver2"]="git@git.anitron.com:anitron/g1/livox_ros_driver2.git|jazzy"
+    ["unitree_g1_description"]="git@git.anitron.com:anitron/g1/unitree_g1_description.git|main|simulation,local,all"
+    ["unitree_g1_moveit"]="git@git.anitron.com:anitron/g1/unitree-g1-moveit.git|main|simulation,local,all"
+    ["unitree_g1_task_planner"]="git@git.anitron.com:anitron/g1/demos/unitree-g1-task-planner.git|dev|simulation,local,all"
+    ["unitree_g1_pick_place"]="git@git.anitron.com:anitron/g1/demos/unitree_g1_pick_place.git|main|simulation,local,all"
+    ["unitree_g1_vla"]="git@git.anitron.com:anitron/g1/unitree-g1-vla.git|main|simulation,local,all"
+    ["unitree_sim_isaaclab"]="git@git.anitron.com:anitron/g1/unitree_sim_isaaclab.git|main|simulation,all"
+    ["unitree_g1_interfaces"]="git@git.anitron.com:anitron/g1/demos/unitree_g1_interfaces.git|main|local,all"
+    ["unitree_g1_perception"]="git@git.anitron.com:anitron/g1/unitree_g1_perception.git|dev|local,all"
+    ["unitree_g1_ros2_control"]="git@git.anitron.com:anitron/g1/unitree_g1_ros2_control.git|main|local,all"
+    ["fast_livo"]="git@git.anitron.com:anitron/g1/fast-livo2|ros2|local,all"
+    ["rpg_vikit"]="https://github.com/integralrobotics/rpg_vikit.git|ros2|local,all"
+    ["livox_ros_driver2"]="git@git.anitron.com:anitron/g1/livox_ros_driver2.git|jazzy|local,all"
 )
 for repo in "${!srcRepos[@]}"; do
-    IFS="|" read -r url branch <<< "${srcRepos[$repo]}"
+    IFS="|" read -r url branch tags <<< "${srcRepos[$repo]}"
+
+    # Filter by mode
+    if [ "$MODE" != "all" ]; then
+        if [[ ! ",$tags," =~ ,$MODE, ]]; then
+            echo "⏭️  Skipping $repo (not in '$MODE' mode)"
+            continue
+        fi
+    fi
 
     if [ -d "$repo/.git" ]; then
         echo "🔄 Updating $repo ..."
@@ -65,7 +94,7 @@ for repo in "${!srcRepos[@]}"; do
     fi
 done
 
-# Install jazzy sophus
+# --- 4. Install ROS dependencies.
 sudo apt install ros-$ROS_DISTRO-sophus \
     ros-$ROS_DISTRO-hardware-interface  \
     ros-$ROS_DISTRO-serial-driver \
@@ -85,11 +114,13 @@ sudo apt install ros-$ROS_DISTRO-sophus \
 cd "$SDK_DIR"
 # Build Livox SDK
 declare -A sdkRepos=(
-    ["Livox_SDK2"]="git@git.anitron.com:anitron/g1/Livox_SDK2.git|ubuntu24"
-    ["unitree_sdk2"]="git@github.com:unitreerobotics/unitree_sdk2.git|main"
+    ["Livox_SDK2"]="git@git.anitron.com:anitron/g1/Livox_SDK2.git|ubuntu24|simulation,local,all"
+    ["unitree_sdk2"]="git@github.com:unitreerobotics/unitree_sdk2.git|main|simulation,local,all"
+    ["unitree_sdk2_python"]="git@github.com:unitreerobotics/unitree_sdk2_python.git|master|simulation,local,all"
+    ["cyclonedds"]="https://github.com/eclipse-cyclonedds/cyclonedds.git|releases/0.10.x|simulation,all"
 )
 for repo in "${!sdkRepos[@]}"; do
-    IFS="|" read -r url branch <<< "${sdkRepos[$repo]}"
+    IFS="|" read -r url branch tags <<< "${sdkRepos[$repo]}"
 
     if [ -d "$repo/.git" ]; then
         echo "🔄 Updating $repo ..."
@@ -102,22 +133,37 @@ for repo in "${!sdkRepos[@]}"; do
     fi
 done
 
-log "Building Livox SDK2..."
-cd Livox_SDK2
-mkdir -p build && cd build
-cmake .. -DCMAKE_INSTALL_PREFIX="$SDK_DIR/livox_sdk2"
-make -j$(nproc)
-make install
-log "Livox SDK2 installed to $SDK_DIR"
-cd "$SDK_DIR"
+# Build Livox_SDK2
+if [[-d "Livox_SDK2"]]; then
+    log "Building Livox SDK2..."
+    cd Livox_SDK2
+    mkdir -p build && cd build
+    cmake .. -DCMAKE_INSTALL_PREFIX="$SDK_DIR/livox_sdk2"
+    make -j$(nproc)
+    make install
+    log "Livox SDK2 installed to $SDK_DIR"
+    cd "$SDK_DIR"
+fi
 
 # Build Unitree SDK
-cd unitree_sdk2
-mkdir -p build && cd build
-cmake .. -DCMAKE_INSTALL_PREFIX="$SDK_DIR/unitree_robotics"
-make -j$(nproc)
-make install
-log "unitree_sdk2 installed to $SDK_DIR"
+if [[-d "unitree_sdk2"]]; then
+    log "Building unitree_sdk2..."
+    cd unitree_sdk2
+    mkdir -p build && cd build
+    cmake .. -DCMAKE_INSTALL_PREFIX="$SDK_DIR/unitree_robotics"
+    make -j$(nproc)
+    make install
+    log "unitree_robotics installed to $SDK_DIR"
+fi
+
+# Build CycloneDDS
+if [[-d "cyclonedds"]]; then
+    log "Building cyclonedds..."
+    cd cyclonedds
+    mkdir build && cd build
+    cmake .. -DCMAKE_INSTALL_PREFIX="$SDK_DIR/cyclonedds/install"
+    cmake --build . --target "$SDK_DIR/cyclonedds/install" 
+fi
 
 # --- 4. Source ROS2 environment ---
 if [ -f /opt/ros/$ROS_DISTRO/setup.sh ]; then
