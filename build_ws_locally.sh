@@ -38,20 +38,21 @@ MODE="${1:-all}"
 log "Deployment mode: $MODE"
 
 # --- 1. Create workspace folders ---
-mkdir -p "$SRC_DIR" "$DOCKER_DIR" "$SDK_DIR" #"$THIRDPARTY_SRC"
+mkdir -p "$SRC_DIR" "$SDK_DIR" #"$THIRDPARTY_SRC"
 log "Workspace structure created."
 
 # --- 2. Clone docker folder ---
-declare -A dockerRepo = ["unitree_g1_docker"]="git@git.anitron.com:anitron/g1/g1-docker|main"
+declare -A dockerRepo="git@git.anitron.com:anitron/g1/g1-docker.git|main"
 IFS="|" read -r url branch <<< "${dockerRepo}"
 if [ -d "$DOCKER_DIR/.git" ]; then
-    echo "🔄 Updating $dockerRepo ..."
-    git -C "$dockerRepo" fetch origin
-    git -C "$dockerRepo" checkout "$branch"
-    git -C "$dockerRepo" pull origin "$branch"
+    log "🔄 Updating $dockerRepo ..."
+    cd $DOCKER_DIR
+    git fetch origin
+    git checkout "$branch"
+    git pull origin "$branch"
 else
-    echo "⬇️ Cloning $dockerRepo ..."
-    git clone -b "$branch" "$url" "$DOCKER_DIR"
+    log "⬇️ Cloning $dockerRepo ..."
+    git clone -b $branch $url $DOCKER_DIR
 fi
 
 # --- 3. Clone repositories if not already cloned ---
@@ -62,9 +63,9 @@ declare -A srcRepos=(
     ["unitree_g1_description"]="git@git.anitron.com:anitron/g1/unitree_g1_description.git|main|simulation,local,all"
     ["unitree_g1_moveit"]="git@git.anitron.com:anitron/g1/unitree-g1-moveit.git|main|simulation,local,all"
     ["unitree_g1_task_planner"]="git@git.anitron.com:anitron/g1/demos/unitree-g1-task-planner.git|dev|simulation,local,all"
-    ["unitree_g1_pick_place"]="git@git.anitron.com:anitron/g1/demos/unitree_g1_pick_place.git|main|simulation,local,all"
     ["unitree_g1_vla"]="git@git.anitron.com:anitron/g1/unitree-g1-vla.git|main|simulation,local,all"
     ["unitree_sim_isaaclab"]="git@git.anitron.com:anitron/g1/unitree_sim_isaaclab.git|main|simulation,all"
+    ["unitree_g1_pick_place"]="git@git.anitron.com:anitron/g1/demos/unitree_g1_pick_place.git|main|local,all"
     ["unitree_g1_interfaces"]="git@git.anitron.com:anitron/g1/demos/unitree_g1_interfaces.git|main|local,all"
     ["unitree_g1_perception"]="git@git.anitron.com:anitron/g1/unitree_g1_perception.git|dev|local,all"
     ["unitree_g1_ros2_control"]="git@git.anitron.com:anitron/g1/unitree_g1_ros2_control.git|main|local,all"
@@ -78,18 +79,18 @@ for repo in "${!srcRepos[@]}"; do
     # Filter by mode
     if [ "$MODE" != "all" ]; then
         if [[ ! ",$tags," =~ ,$MODE, ]]; then
-            echo "⏭️  Skipping $repo (not in '$MODE' mode)"
+            warn "⏭️  Skipping $repo (not in '$MODE' mode)"
             continue
         fi
     fi
 
     if [ -d "$repo/.git" ]; then
-        echo "🔄 Updating $repo ..."
+        log "🔄 Updating $repo ..."
         git -C "$repo" fetch origin
         git -C "$repo" checkout "$branch"
         git -C "$repo" pull origin "$branch"
     else
-        echo "⬇️ Cloning $repo ..."
+        log "⬇️ Cloning $repo ..."
         git clone -b "$branch" "$url" "$repo"
     fi
 done
@@ -110,8 +111,46 @@ sudo apt install ros-$ROS_DISTRO-sophus \
     ros-$ROS_DISTRO-controller-manager \
     ros-$ROS_DISTRO-ros2-controllers \
 
-# Build SDKs
+# --- 4. Source ROS2 environment ---
+cd "$WS_DIR"
+if [[ -f "/opt/ros/$ROS_DISTRO/setup.sh" ]]; then
+  source /opt/ros/$ROS_DISTRO/setup.sh
+else
+  error "ROS2 $ROS_DISTRO not found!"
+  exit 1
+fi
+
+if [[ -n "$ZSH_VERSION" ]]; then
+    if [[ -f "/opt/ros/$ROS_DISTRO/setup.zsh" ]]; then
+        source /opt/ros/$ROS_DISTRO/setup.zsh
+    fi
+elif [[ -n "$BASH_VERSION" ]]; then
+    if [[ -f "/opt/ros/$ROS_DISTRO/setup.bash" ]]; then
+        source /opt/ros/$ROS_DISTRO/setup.bash
+    fi
+fi
+
+# --- 5. Access Virtual Environment ---
+if [[ -f "$WS_DIR/../env.sh" ]]; then
+    log "Activating external environment (env.sh)"
+    source "$WS_DIR/../env.sh"
+elif [[ -f "$WS_DIR/.venv/bin/activate" ]]; then
+    log "Activating local virtual environment (.venv)"
+    source "$WS_DIR/.venv/bin/activate"
+else
+    log "Creating virtual environment"
+    python3 -m venv $WS_DIR/.venv
+    source "$WS_DIR/.venv/bin/activate"
+    pip3 install catkin_pkg empy numpy==1.26.4 lark
+fi
+
+# --- 6. Build SDKs ---
 cd "$SDK_DIR"
+# Ignore colcon build
+if [[ ! -f "COLCON_IGNORE" ]]; then
+    warn "Ignore SDK in Colcon..."
+    touch COLCON_IGNORE
+fi
 # Build Livox SDK
 declare -A sdkRepos=(
     ["Livox_SDK2"]="git@git.anitron.com:anitron/g1/Livox_SDK2.git|ubuntu24|simulation,local,all"
@@ -123,18 +162,18 @@ for repo in "${!sdkRepos[@]}"; do
     IFS="|" read -r url branch tags <<< "${sdkRepos[$repo]}"
 
     if [ -d "$repo/.git" ]; then
-        echo "🔄 Updating $repo ..."
+        log "🔄 Updating $repo ..."
         git -C "$repo" fetch origin
         git -C "$repo" checkout "$branch"
         git -C "$repo" pull origin "$branch"
     else
-        echo "⬇️ Cloning $repo ..."
+        log "⬇️ Cloning $repo ..."
         git clone -b "$branch" "$url" "$repo"
     fi
 done
 
 # Build Livox_SDK2
-if [[-d "Livox_SDK2"]]; then
+if [[ -d "Livox_SDK2" ]]; then
     log "Building Livox SDK2..."
     cd Livox_SDK2
     mkdir -p build && cd build
@@ -146,7 +185,7 @@ if [[-d "Livox_SDK2"]]; then
 fi
 
 # Build Unitree SDK
-if [[-d "unitree_sdk2"]]; then
+if [[ -d "unitree_sdk2" ]]; then
     log "Building unitree_sdk2..."
     cd unitree_sdk2
     mkdir -p build && cd build
@@ -154,36 +193,30 @@ if [[-d "unitree_sdk2"]]; then
     make -j$(nproc)
     make install
     log "unitree_robotics installed to $SDK_DIR"
+    cd "$SDK_DIR"
 fi
 
 # Build CycloneDDS
-if [[-d "cyclonedds"]]; then
+if [[ -d "cyclonedds" ]]; then
     log "Building cyclonedds..."
     cd cyclonedds
     mkdir build && cd build
     cmake .. -DCMAKE_INSTALL_PREFIX="$SDK_DIR/cyclonedds/install"
     cmake --build . --target "$SDK_DIR/cyclonedds/install" 
+    cd "$SDK_DIR"
 fi
 
-# --- 4. Source ROS2 environment ---
-if [ -f /opt/ros/$ROS_DISTRO/setup.sh ]; then
-  source /opt/ros/$ROS_DISTRO/setup.sh
-else
-  error "ROS2 $ROS_DISTRO not found!"
-  exit 1
-fi
-
-if [ -n "$ZSH_VERSION" ]; then
-    if [ -f /opt/ros/$ROS_DISTRO/setup.zsh ]; then
-        source /opt/ros/$ROS_DISTRO/setup.zsh
-    fi
-elif [ -n "$BASH_VERSION" ]; then
-    if [ -f /opt/ros/$ROS_DISTRO/setup.bash ]; then
-        source /opt/ros/$ROS_DISTRO/setup.bash
-    fi
-fi
-# --- 5. Build workspace ---
-cd "$WS_DIR"
+# --- 7. Build workspace ---
+cd $WS_DIR
 log "Starting colcon build..."
 colcon build --symlink-install
+if [ -n "$ZSH_VERSION" ]; then
+    if [ -f "install/setup.zsh" ]; then
+        source install/setup.zsh
+    fi
+elif [ -n "$BASH_VERSION" ]; then
+    if [ -f "install/setup.bash" ]; then
+        source install/setup.bash
+    fi
+fi
 log "Build complete ✅"
