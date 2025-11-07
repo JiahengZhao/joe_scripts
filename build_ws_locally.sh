@@ -156,7 +156,7 @@ declare -A sdkRepos=(
     ["Livox_SDK2"]="git@git.anitron.com:anitron/g1/Livox_SDK2.git|ubuntu24|simulation,local,all"
     ["unitree_sdk2"]="git@github.com:unitreerobotics/unitree_sdk2.git|main|simulation,local,all"
     ["unitree_sdk2_python"]="git@github.com:unitreerobotics/unitree_sdk2_python.git|master|simulation,local,all"
-    ["cyclonedds"]="https://github.com/eclipse-cyclonedds/cyclonedds.git|releases/0.10.x|simulation,all"
+    ["cyclonedds"]="https://github.com/eclipse-cyclonedds/cyclonedds.git|releases/0.10.x|simulation,local,all"
 )
 for repo in "${!sdkRepos[@]}"; do
     IFS="|" read -r url branch tags <<< "${sdkRepos[$repo]}"
@@ -202,7 +202,9 @@ if [[ -d "cyclonedds" ]]; then
     cd cyclonedds
     mkdir build && cd build
     cmake .. -DCMAKE_INSTALL_PREFIX="$SDK_DIR/cyclonedds/install"
-    cmake --build . --target "$SDK_DIR/cyclonedds/install" 
+    make -j$(nproc)
+    make install
+    # cmake --build . --target "$SDK_DIR/cyclonedds/install" 
     cd "$SDK_DIR"
 fi
 

@@ -113,9 +113,15 @@ else
 fi
 
 # === POST BUILD ===
-if [ -f "$INSTALL_DIR/setup.zsh" ]; then
-    info "Sourcing new workspace environment"
-    source "$INSTALL_DIR/setup.zsh"
+info "Sourcing new workspace environment"
+if [ -n "$ZSH_VERSION" ]; then
+    if [ -f "install/setup.zsh" ]; then
+        source install/setup.zsh
+    fi
+elif [ -n "$BASH_VERSION" ]; then
+    if [ -f "install/setup.bash" ]; then
+        source install/setup.bash
+    fi
 fi
 
 info "✅ Build finished successfully."
